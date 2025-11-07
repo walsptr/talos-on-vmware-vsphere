@@ -52,7 +52,7 @@ upload_ova () {
     EXPORT_DIR="./export-${LOCAL_OVA_NAME}"
 
     echo "📦 1/5: Downloading & importing OVA into temporary VM..."
-    govc import.ova -name=${TMP_VM_NAME} -options <(cat <<EOF
+    govc import.ova -name=${TMP_VM_NAME} -net=${GOVC_NETWORK} -options <(cat <<EOF
 {
   "DiskProvisioning": "thin",
   "PowerOn": false,
