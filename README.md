@@ -1,4 +1,9 @@
 1. Download govc and talosctl
+```
+curl -L -o - "https://github.com/vmware/govmomi/releases/latest/download/govc_$(uname -s)_$(uname -m).tar.gz" | sudo tar -C /usr/local/bin -xvzf - govc
+
+curl -sL https://talos.dev/install | sh
+```
 2. get cp.patch.yaml
 ```
 curl -fsSLO https://raw.githubusercontent.com/siderolabs/talos/refs/tags/v1.11.0/website/content/v1.8/talos-guides/install/virtualized-platforms/vmware/cp.patch.yaml
