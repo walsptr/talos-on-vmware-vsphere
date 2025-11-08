@@ -179,9 +179,11 @@ providers:
 VSPHERE_SERVER: "10.0.0.1"
 VSPHERE_USERNAME: "vi-admin@vsphere.local"
 VSPHERE_PASSWORD: "admin!23"
-VSPHERE_DATACENTER: "SDDC-Datacenter"                         
+VSPHERE_DATACENTER: "SDDC-Datacenter"
+VSPHERE_RESOURCE_POOL: "*/Resources"                  
 VSPHERE_DATASTORE: "DefaultDatastore"
-VSPHERE_NETWORK: "VM Network"                  
+VSPHERE_NETWORK: "VM Network"            
+EXP_CLUSTER_RESOURCE_SET: "true"      
 VSPHERE_TEMPLATE: "talos"
 CONTROL_PLANE_ENDPOINT_IP: "192.168.9.230"
 ```
