@@ -24,19 +24,6 @@ CONTROL_PLANE_MEM=${CONTROL_PLANE_MEM:=4096}
 CONTROL_PLANE_DISK=${CONTROL_PLANE_DISK:=30G}
 CONTROL_PLANE_MACHINE_CONFIG_PATH=${CONTROL_PLANE_MACHINE_CONFIG_PATH:="./${CLUSTER_NAME}/controlplane.yaml"}
 
-WORKER_COUNT=${WORKER_COUNT:=1}
-WORKER_CPU=${WORKER_CPU:=2}
-WORKER_MEM=${WORKER_MEM:=4096}
-WORKER_DISK=${WORKER_DISK:=30G}
-WORKER_MACHINE_CONFIG_PATH=${WORKER_MACHINE_CONFIG_PATH:="./${CLUSTER_NAME}/worker.yaml"}
-
-INFRA_COUNT=${INFRA_COUNT:=1}
-INFRA_CPU=${INFRA_CPU:=2}
-INFRA_MEM=${INFRA_MEM:=4096}
-INFRA_DISK=${INFRA_DISK:=30G}
-INFRA_MACHINE_CONFIG_PATH=${INFRA_MACHINE_CONFIG_PATH:="./${CLUSTER_NAME}/worker.yaml"}
-
-
 VIP_TALOS=${VIP_TALOS:=172.23.11.45}
 
 #upload_ova () {
@@ -141,62 +128,6 @@ create () {
 
         govc vm.power -on ${CLUSTER_NAME}-control-plane-${i}
     done
-
-    ## Create worker nodes and edit their settings
-    for i in $(seq 1 ${WORKER_COUNT}); do
-        echo ""
-        echo "launching worker node: ${CLUSTER_NAME}-worker-${i}"
-        echo ""
-
-        govc library.deploy ${CLUSTER_NAME}/talos-${TALOS_VERSION} ${CLUSTER_NAME}-worker-${i}
-
-        govc vm.change \
-        -c ${WORKER_CPU}\
-        -m ${WORKER_MEM} \
-        -e "guestinfo.talos.config=${WORKER_B64_MACHINE_CONFIG}" \
-        -e "disk.enableUUID=1" \
-        -vm ${CLUSTER_NAME}-worker-${i}
-
-        govc vm.disk.change -vm ${CLUSTER_NAME}-worker-${i} -disk.name disk-1000-0 -size ${WORKER_DISK}
-
-        if [ -z "${GOVC_NETWORK+x}" ]; then
-             echo "GOVC_NETWORK is unset, assuming default VM Network";
-        else
-            echo "GOVC_NETWORK set to ${GOVC_NETWORK}";
-            govc vm.network.change -vm ${CLUSTER_NAME}-worker-${i} -net "${GOVC_NETWORK}" ethernet-0
-        fi
-
-
-        govc vm.power -on ${CLUSTER_NAME}-worker-${i}
-    done
-
-    ## Create INFRA nodes and edit their settings
-    for i in $(seq 1 ${INFRA_COUNT}); do
-        echo ""
-        echo "launching INFRA node: ${CLUSTER_NAME}-infra-${i}"
-        echo ""
-
-        govc library.deploy ${CLUSTER_NAME}/talos-${TALOS_VERSION} ${CLUSTER_NAME}-infra-${i}
-
-        govc vm.change \
-        -c ${INFRA_CPU}\
-        -m ${INFRA_MEM} \
-        -e "guestinfo.talos.config=${INFRA_B64_MACHINE_CONFIG}" \
-        -e "disk.enableUUID=1" \
-        -vm ${CLUSTER_NAME}-infra-${i}
-
-        govc vm.disk.change -vm ${CLUSTER_NAME}-infra-${i} -disk.name disk-1000-0 -size ${INFRA_DISK}
-
-        if [ -z "${GOVC_NETWORK+x}" ]; then
-             echo "GOVC_NETWORK is unset, assuming default VM Network";
-        else
-            echo "GOVC_NETWORK set to ${GOVC_NETWORK}";
-            govc vm.network.change -vm ${CLUSTER_NAME}-infra-${i} -net "${GOVC_NETWORK}" ethernet-0
-        fi
-
-
-        govc vm.power -on ${CLUSTER_NAME}-infra-${i}
-    done
 }
 
 bootstrap () {
@@ -237,18 +168,11 @@ kubeconfig () {
 
 labeled () {
     source rc-${CLUSTER_NAME}
-    for i in $(seq 1 ${WORKER_COUNT}); do
-      echo "Labeled Worker Node"
-      IP_NODE=$(govc vm.ip ${CLUSTER_NAME}-worker-${i})
+    for i in $(seq 1 ${CONTROL_PLANE_COUNT}); do
+      echo "Labeled Ctrl Plane Node"
+      IP_NODE=$(govc vm.ip ${CLUSTER_NAME}-control-plane-${i})
       NODE_NAME=$(kubectl get nodes -o wide | grep $IP_NODE | awk '{print $1}')
       kubectl label node $NODE_NAME node-role.kubernetes.io/worker=worker
-    done
-
-    for i in $(seq 1 ${INFRA_COUNT}); do
-      echo "Labeled Infra Node"
-      IP_NODE=$(govc vm.ip ${CLUSTER_NAME}-infra-${i})
-      NODE_NAME=$(kubectl get nodes -o wide | grep $IP_NODE | awk '{print $1}')
-      kubectl label node $NODE_NAME node-role.kubernetes.io/worker=worker node-role.kubernetes.io/infra=infra
     done
 }
 
@@ -260,22 +184,6 @@ destroy() {
         echo ""
 
         govc vm.destroy ${CLUSTER_NAME}-control-plane-${i}
-    done
-
-    echo "Delete Worker Node"
-    for i in $(seq 1 ${WORKER_COUNT}); do
-        echo ""
-        echo "destroying worker node: ${CLUSTER_NAME}-worker-${i}"
-        echo ""
-        govc vm.destroy ${CLUSTER_NAME}-worker-${i}
-    done
-
-    echo "Delete Infra Node"
-    for i in $(seq 1 ${INFRA_COUNT}); do
-        echo ""
-        echo "destroying infra node: ${CLUSTER_NAME}-infra-${i}"
-        echo ""
-        govc vm.destroy ${CLUSTER_NAME}-infra-${i}
     done
 }
 

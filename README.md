@@ -33,31 +33,42 @@ cluster:
       name: none
   proxy:
     disabled: true
+  externalCloudProvider:
+    enabled: true
 EOF
 ```
 5. upload ova
 ```
-./vmware.sh upload_ova
+./mgmt.sh upload_ova
 ```
 6. gen config
 ```
-./vmware.sh gen_config
+./mgmt.sh gen_config
 ```
-7. create
+
+7. edit controlplane.yaml
 ```
-./vmware.sh create
+cluster.allowSchedulingOnControlPlanes to true
 ```
-8. bootstrap
+
+8. create
 ```
-./vmware.sh bootstrap
+./mgmt.sh create
 ```
-9. kubeconfig
+
+9. bootstrap
 ```
-./vmware.sh kubeconfig
+./mgmt.sh bootstrap
 ```
-10. labeled
+
+10. kubeconfig
 ```
-./vmware.sh labeled
+./mgmt.sh kubeconfig
+```
+
+11. labeled
+```
+./mgmt.sh labeled
 ```
 
 
@@ -133,8 +144,49 @@ helm repo update
 # Install ingress-nginx with helm
 helm install ingress-nginx ingress-nginx/ingress-nginx \
   --namespace ingress-nginx --create-namespace \
-  --set controller.replicaCount=3
+  --set controller.replicaCount=3 \
   --set controller.service.type=NodePort \
   --set controller.service.nodePorts.http=30080 \
   --set controller.service.nodePorts.https=30443
+```
+
+
+# Deploy CAPV
+1. Install clusterctl
+```
+curl -L https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.11.3/clusterctl-linux-amd64 -o clusterctl
+
+sudo install -o root -g root -m 0755 clusterctl /usr/local/bin/clusterctl
+
+clusterctl version
+```
+
+2. create clusterctl.yaml
+```
+vim ~/.cluster-api/clusterctl.yaml
+
+providers:
+  - name: "talos"
+    url: "https://github.com/siderolabs/cluster-api-bootstrap-provider-talos/releases/v1.11.1/bootstrap-components.yaml"
+    type: "BootstrapProvider"
+  - name: "talos"
+    url: "https://github.com/siderolabs/cluster-api-control-plane-provider-talos/releases/v1.11.1/control-plane-components.yaml"
+    type: "ControlPlaneProvider"
+  - name: "vsphere"
+    url: "https://github.com/kubernetes-sigs/cluster-api-provider-vsphere/releases/download/v1.14.0/infrastructure-components.yaml"
+    type: "InfrastructureProvider"
+
+VSPHERE_SERVER: "10.0.0.1"
+VSPHERE_USERNAME: "vi-admin@vsphere.local"
+VSPHERE_PASSWORD: "admin!23"
+VSPHERE_DATACENTER: "SDDC-Datacenter"                         
+VSPHERE_DATASTORE: "DefaultDatastore"
+VSPHERE_NETWORK: "VM Network"                  
+VSPHERE_TEMPLATE: "talos"
+CONTROL_PLANE_ENDPOINT_IP: "192.168.9.230"
+```
+
+3. install CAPI
+```
+clusterctl init --infrastructure vsphere --control-plane talos --bootstrap talos
 ```
