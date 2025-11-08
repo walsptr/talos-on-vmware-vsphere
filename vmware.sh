@@ -49,7 +49,6 @@ upload_ova () {
     ## STEP 0: Vars
     LOCAL_OVA_NAME="talos-${TALOS_VERSION}"
     TMP_VM_NAME="${LOCAL_OVA_NAME}-tmp"
-    EXPORT_DIR="./export-${LOCAL_OVA_NAME}"
 
     echo "📦 1/5: Downloading & importing OVA into temporary VM..."
 
@@ -75,18 +74,17 @@ EOF
     govc vm.info "${TMP_VM_NAME}" | grep -i thin || echo "⚠️ Warning: disk type check skipped (verify manually if needed)"
 
     echo "📤 3/5: Exporting VM back to OVF..."
-    rm -rf "${EXPORT_DIR}"
-    mkdir -p "${EXPORT_DIR}"
-    govc export.ovf -vm "${TMP_VM_NAME}" "${EXPORT_DIR}/"
-    OVF_FILE="${EXPORT_DIR}/${TMP_VM_NAME}.ovf"
+    rm -rf "${TMP_VM_NAME}"
+    govc export.ovf -vm "${TMP_VM_NAME}" .
+    OVF_FILE="${TMP_VM_NAME}/${TMP_VM_NAME}.ovf"
     echo "✅ Exported OVF: ${OVF_FILE}"
 
     echo "🧹 4/5: Cleaning up temporary VM..."
     govc vm.destroy "${TMP_VM_NAME}"
 
     echo "📚 5/5: Uploading thin-provisioned OVF to Content Library..."
-    govc library.create -n=false "${CLUSTER_NAME}" || true
-    govc library.import -n "talos-${TALOS_VERSION}" "${CLUSTER_NAME}" "${EXPORT_DIR}"
+    govc library.create "${CLUSTER_NAME}"
+    govc library.import -n "talos-${TALOS_VERSION}" "${CLUSTER_NAME}" "${OVF_FILE}"
 
     echo "🎉 Done! Library item 'talos-${TALOS_VERSION}' now thin-provisioned and ready to deploy."
 }
@@ -279,6 +277,12 @@ destroy() {
         echo ""
         govc vm.destroy ${CLUSTER_NAME}-infra-${i}
     done
+
+    echo "Delete rc file"
+    rm -rf rc-${CLUSTER_NAME}
+
+    echo "Delete kubeconfig"
+    rm -rf ~/.kube/${CLUSTER_NAME}
 }
 
 delete_ova() {

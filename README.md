@@ -103,6 +103,7 @@ helm install \
     --set cgroup.autoMount.enabled=false \
     --set cgroup.hostRoot=/sys/fs/cgroup \
     --set k8sServiceHost=localhost \
+    --set operator.tolerateMaster=true \
     --set k8sServicePort=7445
 ```
 
@@ -150,6 +151,15 @@ helm install ingress-nginx ingress-nginx/ingress-nginx \
   --set controller.service.nodePorts.https=30443
 ```
 
+# Installation CPI
+```
+helm repo add vsphere-cpi https://kubernetes.github.io/cloud-provider-vsphere
+helm repo update
+
+helm upgrade --install vsphere-cpi vsphere-cpi/vsphere-cpi --namespace kube-system --set config.enabled=true --set config.vcenter=<vCenter IP> --set config.username=<vCenter Username> --set config.password=<vCenter Password> --set config.datacenter=<vCenter Datacenter>
+
+kubectl taint nodes --all node.cloudprovider.kubernetes.io/uninitialized-
+```
 
 # Deploy CAPV
 1. Install clusterctl
@@ -163,6 +173,7 @@ clusterctl version
 
 2. create clusterctl.yaml
 ```
+mkdir ~/.cluster-api/
 vim ~/.cluster-api/clusterctl.yaml
 
 providers:
@@ -176,19 +187,19 @@ providers:
     url: "https://github.com/kubernetes-sigs/cluster-api-provider-vsphere/releases/download/v1.14.0/infrastructure-components.yaml"
     type: "InfrastructureProvider"
 
-VSPHERE_SERVER: "10.0.0.1"
-VSPHERE_USERNAME: "vi-admin@vsphere.local"
-VSPHERE_PASSWORD: "admin!23"
-VSPHERE_DATACENTER: "SDDC-Datacenter"
-VSPHERE_RESOURCE_POOL: "*/Resources"                  
-VSPHERE_DATASTORE: "DefaultDatastore"
-VSPHERE_NETWORK: "VM Network"            
-EXP_CLUSTER_RESOURCE_SET: "true"      
+VSPHERE_SERVER: ""
+VSPHERE_USERNAME: ""
+VSPHERE_PASSWORD: ""
+VSPHERE_DATACENTER: ""
+VSPHERE_RESOURCE_POOL: "" 
+VSPHERE_DATASTORE: ""
+VSPHERE_NETWORK: ""
+EXP_CLUSTER_RESOURCE_SET: "true"
 VSPHERE_TEMPLATE: "talos"
-CONTROL_PLANE_ENDPOINT_IP: "192.168.9.230"
+CONTROL_PLANE_ENDPOINT_IP: ""
 ```
 
 3. install CAPI
 ```
-clusterctl init --infrastructure vsphere --control-plane talos --bootstrap talos
+clusterctl init --config $CLUSTER_NAME/cluster-api/clusterctl.yaml --infrastructure vsphere --control-plane talos --bootstrap talos
 ```
