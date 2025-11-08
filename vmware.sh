@@ -52,7 +52,8 @@ upload_ova () {
     EXPORT_DIR="./export-${LOCAL_OVA_NAME}"
 
     echo "📦 1/5: Downloading & importing OVA into temporary VM..."
-    govc import.ova -name=${TMP_VM_NAME} -options <(cat <<EOF
+
+    govc import.ova -name="${TMP_VM_NAME}" -options <(cat <<EOF
 {
   "DiskProvisioning": "thin",
   "PowerOn": false,
@@ -65,26 +66,27 @@ upload_ova () {
     }
   ]
 }
-EOF 
-    ) ${OVA_PATH}
+EOF
+) "${OVA_PATH}"
 
     echo "✅ Imported temporary VM: ${TMP_VM_NAME}"
 
     echo "🧱 2/5: Verifying disk type..."
-    govc vm.info ${TMP_VM_NAME} | grep -i thin || echo "⚠️ Warning: disk type check skipped (verify manually if needed)"
+    govc vm.info "${TMP_VM_NAME}" | grep -i thin || echo "⚠️ Warning: disk type check skipped (verify manually if needed)"
 
-    echo "📤 3/5: Exporting VM back to OVA..."
-    rm -rf "${TMP_VM_NAME}"
-    govc export.ovf -vm "${TMP_VM_NAME}" .
-    OVF_FILE="${TMP_VM_NAME}/${TMP_VM_NAME}.ovf"
-    echo "✅ Exported OVF: ${OVA_FILE}"
+    echo "📤 3/5: Exporting VM back to OVF..."
+    rm -rf "${EXPORT_DIR}"
+    mkdir -p "${EXPORT_DIR}"
+    govc export.ovf -vm "${TMP_VM_NAME}" "${EXPORT_DIR}/"
+    OVF_FILE="${EXPORT_DIR}/${TMP_VM_NAME}.ovf"
+    echo "✅ Exported OVF: ${OVF_FILE}"
 
     echo "🧹 4/5: Cleaning up temporary VM..."
     govc vm.destroy "${TMP_VM_NAME}"
 
-    echo "📚 5/5: Uploading thin-provisioned OVA to Content Library..."
-    govc library.create "${CLUSTER_NAME}"
-    govc library.import -n "talos-${TALOS_VERSION}" "${CLUSTER_NAME}" "${OVF_FILE}"
+    echo "📚 5/5: Uploading thin-provisioned OVF to Content Library..."
+    govc library.create -n=false "${CLUSTER_NAME}" || true
+    govc library.import -n "talos-${TALOS_VERSION}" "${CLUSTER_NAME}" "${EXPORT_DIR}"
 
     echo "🎉 Done! Library item 'talos-${TALOS_VERSION}' now thin-provisioned and ready to deploy."
 }
