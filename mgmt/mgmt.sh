@@ -130,8 +130,8 @@ gen_config () {
     cp patch.yaml ${CLUSTER_NAME}
 
     echo "Delete cp.patch.yaml and patch.yaml on home directory"
-    rm cp.patch.yaml
-    rm patch.yaml
+    mv cp.patch.yaml ${CLUSTER_NAME}-cp.patch.yaml
+    mv patch.yaml ${CLUSTER_NAME}-patch.yaml
 
     echo "Create gen config file"
     cd ${CLUSTER_NAME}
