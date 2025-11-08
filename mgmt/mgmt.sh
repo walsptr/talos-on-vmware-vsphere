@@ -99,7 +99,7 @@ patch () {
     - interface: eth0
       dhcp: true
       vip:
-        ip: "${VIP_TALOS}"
+        ip: ${VIP_TALOS}
 
 - op: replace
   path: /cluster/extraManifests
@@ -115,8 +115,6 @@ cluster:
       name: none
   proxy:
     disabled: true
-  externalCloudProvider:
-    enabled: true
 EOF
 }
 
@@ -129,7 +127,7 @@ gen_config () {
     cp cp.patch.yaml ${CLUSTER_NAME}
     cp patch.yaml ${CLUSTER_NAME}
 
-    echo "Delete cp.patch.yaml and patch.yaml on home directory"
+    echo "Rename cp.patch.yaml and patch.yaml on home directory"
     mv cp.patch.yaml ${CLUSTER_NAME}-cp.patch.yaml
     mv patch.yaml ${CLUSTER_NAME}-patch.yaml
 
