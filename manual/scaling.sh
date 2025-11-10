@@ -45,7 +45,7 @@ scaling_master () {
     ## Encode machine configs
     CONTROL_PLANE_B64_MACHINE_CONFIG=$(cat ${CONTROL_PLANE_MACHINE_CONFIG_PATH}| base64 | tr -d '\n')
     ## Create control plane nodes and edit their settings
-    for i in $(seq ${CONTROL_PLANE_START} ${CONTROL_PLANE_COUNT}); do
+    for i in $(seq ${CONTROL_PLANE_START} ${CONTROL_PLANE_END}); do
         echo ""
         echo "launching control plane node: ${CLUSTER_NAME}-control-plane-${i}"
         echo ""
@@ -80,7 +80,7 @@ scaling_worker () {
 
     ## Create WORKER nodes and edit their settings
     ## Create worker nodes and edit their settings
-    for i in $(seq ${WORKER_START} ${WORKER_COUNT}); do
+    for i in $(seq ${WORKER_START} ${WORKER_END}); do
         echo ""
         echo "launching worker node: ${CLUSTER_NAME}-worker-${i}"
         echo ""
@@ -113,7 +113,7 @@ scaling_infra () {
     INFRA_B64_MACHINE_CONFIG=$(cat ${INFRA_MACHINE_CONFIG_PATH} | base64 | tr -d '\n')
 
     ## Create INFRA nodes and edit their settings
-    for i in $(seq ${INFRA_START} ${INFRA_COUNT}); do
+    for i in $(seq ${INFRA_START} ${INFRA_END}); do
         echo ""
         echo "launching INFRA node: ${CLUSTER_NAME}-infra-${i}"
         echo ""
@@ -143,14 +143,14 @@ scaling_infra () {
 
 labeled () {
     source rc-${CLUSTER_NAME}
-    for i in $(seq ${WORKER_START} ${WORKER_COUNT}); do
+    for i in $(seq ${WORKER_START} ${WORKER_END}); do
       echo "Labeled Worker Node"
       IP_NODE=$(govc vm.ip ${CLUSTER_NAME}-worker-${i})
       NODE_NAME=$(kubectl get nodes -o wide | grep $IP_NODE | awk '{print $1}')
       kubectl label node $NODE_NAME node-role.kubernetes.io/worker=worker
     done
 
-    for i in $(seq ${INFRA_START} ${INFRA_COUNT}); do
+    for i in $(seq ${INFRA_START} ${INFRA_END}); do
       echo "Labeled Infra Node"
       IP_NODE=$(govc vm.ip ${CLUSTER_NAME}-infra-${i})
       NODE_NAME=$(kubectl get nodes -o wide | grep $IP_NODE | awk '{print $1}')
