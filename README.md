@@ -33,8 +33,6 @@ cluster:
       name: none
   proxy:
     disabled: true
-  externalCloudProvider:
-    enabled: true
 EOF
 ```
 5. upload ova
