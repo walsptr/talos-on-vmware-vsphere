@@ -89,18 +89,48 @@ EOF
     echo "🎉 Done! Library item 'talos-${TALOS_VERSION}' now thin-provisioned and ready to deploy."
 }
 
+patch () {
+    echo "Create cp.patch.yaml file"
+    cat <<EOF > cp.patch.yaml
+- op: add
+  path: /machine/network
+  value:
+    interfaces:
+    - interface: eth0
+      dhcp: true
+      vip:
+        ip: ${VIP_TALOS}
+
+- op: replace
+  path: /cluster/extraManifests
+  value:
+    - "https://raw.githubusercontent.com/siderolabs/talos-vmtoolsd/refs/tags/v1.4.0/deploy/latest.yaml"
+EOF
+
+    echo "Create patch.yaml file"
+    cat <<EOF > patch.yaml
+cluster:
+  network:
+    cni:
+      name: none
+  proxy:
+    disabled: true
+EOF
+}
 
 gen_config () {
     echo "Create directory cluster"
     mkdir -p ${CLUSTER_NAME}
+    sudo mkdir -p /opt/${CLUSTER_NAME}
+    sudo chown -R $(whoami):$(whoami) /opt/${CLUSTER_NAME}
 
     echo "Copy cp.patch.yaml and patch.yaml to cluster directory"
     cp cp.patch.yaml ${CLUSTER_NAME}
     cp patch.yaml ${CLUSTER_NAME}
 
-    echo "Delete cp.patch.yaml and patch.yaml on home directory"
-    rm cp.patch.yaml
-    rm patch.yaml
+    echo "Rename cp.patch.yaml and patch.yaml on /opt directory"
+    mv cp.patch.yaml /opt/${CLUSTER_NAME}/cp.patch.yaml
+    mv patch.yaml /opt/${CLUSTER_NAME}/patch.yaml
 
     echo "Create gen config file"
     cd ${CLUSTER_NAME}
