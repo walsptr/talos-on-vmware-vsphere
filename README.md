@@ -148,3 +148,173 @@ helm install ingress-nginx ingress-nginx/ingress-nginx \
   --set controller.service.nodePorts.http=30080 \
   --set controller.service.nodePorts.https=30443
 ```
+
+
+
+# Noted
+enable scheduling on controlplane
+```
+cluster:
+    allowSchedulingOnControlPlanes: true  
+```
+
+enable cloudprovider external
+```
+  externalCloudProvider:
+    enabled: true
+```
+
+# CPI & CSI
+
+add repo vsphere cpi
+```
+helm repo add vsphere-cpi https://kubernetes.github.io/cloud-provider-vsphere
+helm repo update
+```
+
+install vsphere-cpi
+```
+helm upgrade --install vsphere-cpi vsphere-cpi/vsphere-cpi --namespace kube-system --set config.enabled=true --set config.vcenter=<vCenter IP> --set config.username=<vCenter Username> --set config.password=<vCenter Password> --set config.datacenter=<vCenter Datacenter>
+```
+
+if using cilium for cni you need to delete taint cloudprovider for operator to run
+```
+kubectl taint nodes --all node.cloudprovider.kubernetes.io/uninitialized-
+```
+
+edit vsphere-cloud-config
+```
+kubectl  edit cm -n kube-system vsphere-cloud-config
+
+# delete label region and zone
+```
+
+rollout vsphere-cpi
+```
+kubectl -n kube-system rollout restart ds vsphere-cpi
+```
+
+
+apply to create namespace
+```
+kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/refs/heads/master/manifests/vanilla/namespace.yaml
+```
+
+example secret config csi for vmfs
+```
+vim csi-vsphere.conf
+
+[Global]
+cluster-id = "talos-cluster"
+cluster-distribution = "Talos"
+
+[VirtualCenter "172.23.0.20"]
+insecure-flag = "true"
+user = "administrator@idn.local"
+password = "Idn123*()"
+port = "443"
+datacenters = "DC IDN-PALMERAH"
+default-datastore = "DS-DATA"
+```
+
+create secret
+```
+kubectl create secret generic vsphere-config-secret --from-file=csi-vsphere.conf --namespace=vmware-system-csi
+```
+
+apply csi driver
+```
+kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/refs/heads/master/manifests/vanilla/vsphere-csi-driver.yaml
+```
+
+add label vmware-system-csi for privileged escalation
+```
+kubectl label ns vmware-system-csi pod-security.kubernetes.io/enforce=privileged --overwrite
+kubectl label ns vmware-system-csi pod-security.kubernetes.io/audit=privileged --overwrite
+kubectl label ns vmware-system-csi pod-security.kubernetes.io/warn=privileged --overwrite
+```
+
+
+## testing storage policy
+```
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: vmfs-default
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: csi.vsphere.vmware.com
+parameters:
+  datastoreurl: "ds:///vmfs/volumes/5fdfb4d2-2f0a7f8a/" {optional}
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+```
+jika datastoreurl kosong, CSI akan pilih datastore default dari host ESXi yang terkait node.
+
+datastoreurl can get using govc. 
+```
+govc datastore.info -json <datastore_name> | grep url
+```
+
+testing with statefulset apps
+```
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx
+  labels:
+    app: nginx
+spec:
+  ports:
+    - port: 80
+      name: web
+  clusterIP: None
+  selector:
+    app: nginx
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: nginx
+spec:
+  serviceName: "nginx"
+  replicas: 3
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.25
+          ports:
+            - containerPort: 80
+              name: web
+          volumeMounts:
+            - name: web-data
+              mountPath: /usr/share/nginx/html
+          # write something to the volume to verify persistence
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Pod: $(hostname)" > /usr/share/nginx/html/index.html && nginx -g 'daemon off;'
+  volumeClaimTemplates:
+    - metadata:
+        name: web-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: vmfs-default
+        resources:
+          requests:
+            storage: 2Gi
+```
+
+checking
+```
+kubectl get pods
+kubectl get pvc
+```
