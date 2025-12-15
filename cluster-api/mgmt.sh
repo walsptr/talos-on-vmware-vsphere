@@ -14,8 +14,8 @@ export GOVC_NETWORK='network'
 export GOVC_DATACENTER='datacenter'
 export GOVC_RESOURCE_POOL='/datacenter/host/192.168.1.1/Resources'
 
-CLUSTER_NAME=${CLUSTER_NAME:=MGMT}
-TALOS_VERSION=${TALOS_VERSION:=v1.11.1}
+CLUSTER_NAME=${CLUSTER_NAME:=dev}
+TALOS_VERSION=${TALOS_VERSION:=v1.10.1}
 OVA_PATH=${OVA_PATH:="https://factory.talos.dev/image/903b2da78f99adef03cbbd4df6714563823f63218508800751560d3bc3557e40/${TALOS_VERSION}/vmware-amd64.ova"}
 
 CONTROL_PLANE_COUNT=${CONTROL_PLANE_COUNT:=3}
@@ -32,25 +32,12 @@ VIP_TALOS=${VIP_TALOS:=172.23.11.45}
 #    govc library.import -n talos-${TALOS_VERSION} ${CLUSTER_NAME} ${OVA_PATH} -disk-provisioning thin
 #}
 
-pre_install () {
-    echo "Install govc"
-    curl -L -o - "https://github.com/vmware/govmomi/releases/latest/download/govc_$(uname -s)_$(uname -m).tar.gz" | sudo tar -C /usr/local/bin -xvzf - govc
-
-    echo "Install talosctl"
-    curl -sL https://talos.dev/install | sh
-
-    echo "Install kubectl"
-    curl -LO https://dl.k8s.io/release/v1.33.4/bin/linux/amd64/kubectl
-    sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
-    kubectl version --client
-}
-
 upload_ova () {
     ## STEP 0: Vars
     LOCAL_OVA_NAME="talos-${TALOS_VERSION}"
     TMP_VM_NAME="${LOCAL_OVA_NAME}-tmp"
 
-    echo "📦 1/5: Downloading & importing OVA into temporary VM..."
+    echo "Downloading & importing OVA into temporary VM..."
 
     govc import.ova -name="${TMP_VM_NAME}" -options <(cat <<EOF
 {
@@ -68,25 +55,25 @@ upload_ova () {
 EOF
 ) "${OVA_PATH}"
 
-    echo "✅ Imported temporary VM: ${TMP_VM_NAME}"
+    echo "Imported temporary VM: ${TMP_VM_NAME}"
 
-    echo "🧱 2/5: Verifying disk type..."
-    govc vm.info "${TMP_VM_NAME}" | grep -i thin || echo "⚠️ Warning: disk type check skipped (verify manually if needed)"
+    echo "Verifying disk type..."
+    govc vm.info "${TMP_VM_NAME}" | grep -i thin || echo "Warning: disk type check skipped (verify manually if needed)"
 
-    echo "📤 3/5: Exporting VM back to OVF..."
+    echo "Exporting VM back to OVF..."
     rm -rf "${TMP_VM_NAME}"
     govc export.ovf -vm "${TMP_VM_NAME}" .
     OVF_FILE="${TMP_VM_NAME}/${TMP_VM_NAME}.ovf"
-    echo "✅ Exported OVF: ${OVF_FILE}"
+    echo "Exported OVF: ${OVF_FILE}"
 
-    echo "🧹 4/5: Cleaning up temporary VM..."
+    echo "Cleaning up temporary VM..."
     govc vm.destroy "${TMP_VM_NAME}"
 
-    echo "📚 5/5: Uploading thin-provisioned OVF to Content Library..."
+    echo "Uploading thin-provisioned OVF to Content Library..."
     govc library.create "${CLUSTER_NAME}"
     govc library.import -n "talos-${TALOS_VERSION}" "${CLUSTER_NAME}" "${OVF_FILE}"
 
-    echo "🎉 Done! Library item 'talos-${TALOS_VERSION}' now thin-provisioned and ready to deploy."
+    echo "Done! Library item 'talos-${TALOS_VERSION}' now thin-provisioned and ready to deploy."
 }
 
 patch () {
@@ -118,22 +105,23 @@ cluster:
 EOF
 }
 
-
 gen_config () {
     echo "Create directory cluster"
     mkdir -p ${CLUSTER_NAME}
+    sudo mkdir -p /opt/${CLUSTER_NAME}
+    sudo chown -R $(whoami):$(whoami) /opt/${CLUSTER_NAME}
 
     echo "Copy cp.patch.yaml and patch.yaml to cluster directory"
     cp cp.patch.yaml ${CLUSTER_NAME}
     cp patch.yaml ${CLUSTER_NAME}
 
-    echo "Rename cp.patch.yaml and patch.yaml on home directory"
-    mv cp.patch.yaml ${CLUSTER_NAME}-cp.patch.yaml
-    mv patch.yaml ${CLUSTER_NAME}-patch.yaml
+    echo "Rename cp.patch.yaml and patch.yaml on /opt directory"
+    mv cp.patch.yaml /opt/${CLUSTER_NAME}/cp.patch.yaml
+    mv patch.yaml /opt/${CLUSTER_NAME}/patch.yaml
 
     echo "Create gen config file"
     cd ${CLUSTER_NAME}
-    talosctl gen config ${CLUSTER_NAME} https://${VIP_TALOS}:6443 --config-patch-control-plane @cp.patch.yaml --config-patch @patch.yaml
+    talosctl gen config ${CLUSTER_NAME} https://${VIP_TALOS}:6443 --kubernetes-version 1.33.1 --config-patch-control-plane @cp.patch.yaml --config-patch @patch.yaml
 }
 
 create () {
@@ -170,6 +158,7 @@ create () {
 
         govc vm.power -on ${CLUSTER_NAME}-control-plane-${i}
     done
+
 }
 
 bootstrap () {
@@ -210,11 +199,18 @@ kubeconfig () {
 
 labeled () {
     source rc-${CLUSTER_NAME}
-    for i in $(seq 1 ${CONTROL_PLANE_COUNT}); do
-      echo "Labeled Ctrl Plane Node"
-      IP_NODE=$(govc vm.ip ${CLUSTER_NAME}-control-plane-${i})
+    for i in $(seq 1 ${WORKER_COUNT}); do
+      echo "Labeled Worker Node"
+      IP_NODE=$(govc vm.ip ${CLUSTER_NAME}-worker-${i})
       NODE_NAME=$(kubectl get nodes -o wide | grep $IP_NODE | awk '{print $1}')
       kubectl label node $NODE_NAME node-role.kubernetes.io/worker=worker
+    done
+
+    for i in $(seq 1 ${INFRA_COUNT}); do
+      echo "Labeled Infra Node"
+      IP_NODE=$(govc vm.ip ${CLUSTER_NAME}-infra-${i})
+      NODE_NAME=$(kubectl get nodes -o wide | grep $IP_NODE | awk '{print $1}')
+      kubectl label node $NODE_NAME node-role.kubernetes.io/worker=worker node-role.kubernetes.io/infra=infra
     done
 }
 
@@ -268,21 +264,24 @@ ingress () {
 
 }
 
-destroy() {
-    echo "Delete Control Plane Node"
-    for i in $(seq 1 ${CONTROL_PLANE_COUNT}); do
-        echo ""
-        echo "destroying control plane node: ${CLUSTER_NAME}-control-plane-${i}"
-        echo ""
+cpi () {
+    source rc-${CLUSTER_NAME}
+    echo "Add VMware CPI Helm repository"
+    helm repo add vsphere-cpi https://kubernetes.github.io/cloud-provider-vsphere
+    helm repo update
 
-        govc vm.destroy ${CLUSTER_NAME}-control-plane-${i}
-    done
+    echo "Install VMware Cloud Provider Interface (CPI)"
+    IP_VMWARE=$(echo "$GOVC_URL" | sed -E 's|https?://([^/]+).*|\1|')
+    
+    helm upgrade --install vsphere-cpi vsphere-cpi/vsphere-cpi --namespace kube-system --set config.enabled=true --set config.vcenter=${IP_VMWARE} --set config.username=${GOVC_USERNAME} --set config.password=${GOVC_PASSWORD} --set config.datacenter="'${GOVC_DATACENTER}'"
 
-    echo "Delete rc file"
-    rm -rf rc-${CLUSTER_NAME}
+    echo "Delete labels region and zone"
+    kubectl get cm vsphere-cloud-config -n kube-system -o yaml \
+    | sed -e '/^    # labels for regions and zones$/,/^      zone:/d' \
+    | kubectl apply -f -
 
-    echo "Delete kubeconfig"
-    rm -rf ~/.kube/${CLUSTER_NAME}
+    echo "Rollout restart ds vsphere-cpi"
+    kubectl -n kube-system rollout restart ds vsphere-cpi
 }
 
 delete_ova() {

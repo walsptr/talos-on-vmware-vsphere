@@ -47,17 +47,17 @@ VIP_TALOS=${VIP_TALOS:=172.23.11.45}
 
 upload_ova () {
     ## STEP 0: Vars
-    LOCAL_OVA_NAME="talos-${TALOS_VERSION}"
-    TMP_VM_NAME="${LOCAL_OVA_NAME}-tmp"
+    VM_NAME="talos-${TALOS_VERSION}"
+  
 
     echo "Downloading & importing OVA into temporary VM..."
 
-    govc import.ova -name="${TMP_VM_NAME}" -options <(cat <<EOF
+    govc import.ova -name="${VM_NAME}" -options <(cat <<EOF
 {
   "DiskProvisioning": "thin",
   "PowerOn": false,
   "MarkAsTemplate": false,
-  "Name": "${TMP_VM_NAME}",
+  "Name": "${VM_NAME}",
   "NetworkMapping": [
     {
       "Name": "VM Network",
@@ -68,19 +68,19 @@ upload_ova () {
 EOF
 ) "${OVA_PATH}"
 
-    echo "Imported temporary VM: ${TMP_VM_NAME}"
+    echo "Imported temporary VM: ${VM_NAME}"
 
     echo "Verifying disk type..."
-    govc vm.info "${TMP_VM_NAME}" | grep -i thin || echo "Warning: disk type check skipped (verify manually if needed)"
+    govc vm.info "${VM_NAME}" | grep -i thin || echo "Warning: disk type check skipped (verify manually if needed)"
 
     echo "Exporting VM back to OVF..."
-    rm -rf "${TMP_VM_NAME}"
-    govc export.ovf -vm "${TMP_VM_NAME}" .
-    OVF_FILE="${TMP_VM_NAME}/${TMP_VM_NAME}.ovf"
+    rm -rf "${VM_NAME}"
+    govc export.ovf -vm "${VM_NAME}" .
+    OVF_FILE="${VM_NAME}/${VM_NAME}.ovf"
     echo "Exported OVF: ${OVF_FILE}"
 
-    echo "Cleaning up temporary VM..."
-    govc vm.destroy "${TMP_VM_NAME}"
+    echo "Converting VM to template..."
+    govc vm.markastemplate "${VM_NAME}"
 
     echo "Uploading thin-provisioned OVF to Content Library..."
     govc library.create "${CLUSTER_NAME}"
@@ -330,6 +330,60 @@ ingress () {
   --set controller.service.nodePorts.http=30080 \
   --set controller.service.nodePorts.https=30443
 
+}
+
+cpi () {
+    source rc-${CLUSTER_NAME}
+    echo "Add VMware CPI Helm repository"
+    helm repo add vsphere-cpi https://kubernetes.github.io/cloud-provider-vsphere
+    helm repo update
+
+    echo "Install VMware Cloud Provider Interface (CPI)"
+    IP_VMWARE=$(echo "$GOVC_URL" | sed -E 's|https?://([^/]+).*|\1|')
+    
+    helm upgrade --install vsphere-cpi vsphere-cpi/vsphere-cpi --namespace kube-system --set config.enabled=true --set config.vcenter=${IP_VMWARE} --set config.username=${GOVC_USERNAME} --set config.password=${GOVC_PASSWORD} --set config.datacenter="'${GOVC_DATACENTER}'"
+
+    echo "Delete labels region and zone"
+    kubectl get cm vsphere-cloud-config -n kube-system -o yaml \
+    | sed -e '/^    # labels for regions and zones$/,/^      zone:/d' \
+    | kubectl apply -f -
+
+    echo "Rollout restart ds vsphere-cpi"
+    kubectl -n kube-system rollout restart ds vsphere-cpi
+}
+
+csi () {
+    source rc-${CLUSTER_NAME}
+
+    echo "Create CSI Namepace"
+    kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/refs/heads/master/manifests/vanilla/namespace.yaml
+
+    echo "Create CSI Secret"
+    IP_VMWARE=$(echo "$GOVC_URL" | sed -E 's|https?://([^/]+).*|\1|')
+    cat <<EOF > csi-vsphere.conf
+[Global]
+cluster-id = "${CLUSTER_NAME}-talos"
+cluster-distribution = "Talos"
+
+[VirtualCenter "${IP_VMWARE}"]
+insecure-flag = "true"
+user = "${GOVC_USERNAME}"
+password = "${GOVC_PASSWORD}"
+port = "443"
+datacenters = "${GOVC_DATACENTER}"
+EOF
+
+    echo "Create secret csi-vsphere-config-vanilla"
+    kubectl create secret generic vsphere-config-secret --from-file=csi-vsphere.conf --namespace=vmware-system-csi
+    rm csi-vsphere.conf
+
+    echo "Deploy CSI Driver"
+    kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/vsphere-csi-driver/refs/heads/master/manifests/vanilla/vsphere-csi-driver.yaml    
+
+    echo "add label for privileged escalation"
+    kubectl label ns vmware-system-csi pod-security.kubernetes.io/enforce=privileged --overwrite
+    kubectl label ns vmware-system-csi pod-security.kubernetes.io/audit=privileged --overwrite
+    kubectl label ns vmware-system-csi pod-security.kubernetes.io/warn=privileged --overwrite
 }
 
 
