@@ -415,9 +415,6 @@ sudo pcs resource create drbd_grafana ocf:linbit:drbd drbd_resource=grafana \
   op monitor interval=20s role=Master \
   op monitor interval=30s role=Slave \
   promotable master-max=1 master-node-max=1 clone-max=2 clone-node-max=1 notify=true
-
-sudo pcs resource master ms_drbd_grafana drbd_grafana \
-  master-max=1 master-node-max=1 clone-max=2 clone-node-max=1 notify=true
 ```
 
 Filesystem
@@ -505,10 +502,10 @@ sudo pcs resource create svc_grafana systemd:grafana-server \
 
 constraint
 ```
-sudo pcs constraint colocation add fs_grafana with master ms_drbd_grafana INFINITY
+sudo pcs constraint colocation add fs_grafana with promoted drbd_grafana-clone INFINITY
 sudo pcs constraint colocation add svc_grafana with fs_grafana INFINITY
 
-sudo pcs constraint order promote ms_drbd_grafana then start fs_grafana
+sudo pcs constraint order promote drbd_grafana-clone then start fs_grafana
 sudo pcs constraint order start fs_grafana then start svc_grafana
 ```
 
@@ -517,6 +514,7 @@ VIP
 sudo pcs resource create vip_grafana ocf:heartbeat:IPaddr2 \
   ip=10.10.10.50 cidr_netmask=24 nic=ens192 \
   op monitor interval=10s
+
 
 sudo pcs constraint colocation add vip_grafana with svc_grafana INFINITY
 sudo pcs constraint order start svc_grafana then start vip_grafana
