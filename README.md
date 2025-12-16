@@ -391,4 +391,317 @@ create vmtools secret
 talosctl --talosconfig talosconfig -n 172.23.1.240 config new vmtoolsd-talos-secret.yaml --roles os:admin
 ```
 
-##
+## Clustering DRBD
+```
+parted /dev/sdb
+
+sudo parted /dev/sdb --script \
+  mklabel gpt \
+  mkpart drbd 1MiB 100%
+```
+
+```
+sudo apt update -y && sudo apt install -y pacemaker pcs resource-agents corosync crmsh drbd-utils
+```
+
+```
+sudo vim /etc/drbd.d/grafana.res
+
+resource grafana {
+  on hqmgmttls-01 {
+    device    /dev/drbd0;
+    disk      /dev/sdb1;
+    address   10.10.10.11:7788;
+    meta-disk internal;
+  }
+
+  on hqmgmttls-02 {
+    device    /dev/drbd0;
+    disk      /dev/sdb1;
+    address   10.10.10.12:7788;
+    meta-disk internal;
+  }
+
+  net {
+    cram-hmac-alg sha1;
+    shared-secret "CHANGE_ME_SECRET";
+  }
+}
+```
+
+on all node
+```
+sudo drbdadm create-md grafana
+sudo drbdadm up grafana
+```
+
+promote drbd on primary node
+```
+sudo drbdadm primary grafana --force
+```
+
+partisi
+```
+sudo mkfs.xfs -f /dev/drbd0
+```
+
+checking replication
+```
+sudo watch -n 2 cat /proc/drbd
+```
+
+
+blacklist drbd from lvm
+```
+sudo vim /etc/multipath.conf
+
+blacklist {
+    devnode "^drbd[0-9]+"
+}
+
+sudo multipath -ll
+```
+
+Lanjut ke pacemaker dan corosync
+```
+sudo systemctl stop pacemaker corosync
+sudo systemctl enable --now pcsd
+sudo pcs cluster destroy
+sudo passwd hacluster
+```
+
+auth
+```
+sudo pcs host auth hqmgmttls-01 hqmgmttls-02 -u hacluster
+sudo pcs cluster setup ha_grafana hqmgmttls-01 hqmgmttls-02
+sudo pcs cluster start --all
+sudo pcs cluster enable --all
+```
+
+create resource drbd
+```
+sudo pcs resource create drbd_grafana ocf:linbit:drbd \
+  drbd_resource=grafana op monitor interval=20s role=Master op monitor interval=30s role=Slave
+
+sudo pcs resource master ms_drbd_grafana drbd_grafana \
+  master-max=1 master-node-max=1 clone-max=2 clone-node-max=1 notify=true
+```
+
+Filesystem
+```
+sudo pcs resource create fs_grafana Filesystem \
+  device="/dev/drbd0" directory="/var/lib/grafana" fstype="xfs" \
+  op monitor interval=20s
+```
+
+
+## Monitoring
+
+### Grafana
+
+#### Manual
+```
+sudo apt-get install -y adduser libfontconfig1 musl apt-transport-https software-properties-common wget
+
+wget https://dl.grafana.com/grafana/release/12.3.0/grafana_12.3.0_19497075765_linux_amd64.tar.gz
+tar -zxvf grafana_12.3.0_19497075765_linux_amd64.tar.gz
+
+sudo useradd -r -s /bin/false grafana
+
+sudo mv grafana_12.3.0_19497075765_linux_amd64 /usr/local/grafana
+
+sudo chown -R grafana:users /usr/local/grafana
+
+sudo touch /etc/systemd/system/grafana-server.service
+```
+
+```
+[Unit]
+Description=Grafana Server
+After=network.target
+
+[Service]
+Type=simple
+User=grafana
+Group=users
+ExecStart=/usr/local/grafana/bin/grafana server --config=/usr/local/grafana/conf/grafana.ini --homepath=/var/lib/grafana
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target  
+```
+
+
+#### Repo
+```
+sudo apt-get install -y apt-transport-https software-properties-common wget
+```
+
+```
+sudo mkdir -p /etc/apt/keyrings/
+wget -q -O - https://apt.grafana.com/gpg.key | gpg --dearmor | sudo tee /etc/apt/keyrings/grafana.gpg > /dev/null
+```
+
+```
+echo "deb [signed-by=/etc/apt/keyrings/grafana.gpg] https://apt.grafana.com stable main" | sudo tee -a /etc/apt/sources.list.d/grafana.list
+```
+
+```
+# Updates the list of available packages
+sudo apt-get update
+
+# Installs the latest OSS release:
+sudo apt-get install grafana
+```
+disable grafana so not start from systemctl
+```
+sudo systemctl disable --now grafana-server
+```
+
+disable stonith
+```
+sudo pcs property set stonith-enabled=false
+```
+
+svc grafana
+```
+sudo pcs resource create svc_grafana systemd:grafana-server \
+  op monitor interval=20s
+```
+
+constraint
+```
+sudo pcs constraint colocation add fs_grafana with master ms_drbd_grafana INFINITY
+sudo pcs constraint colocation add svc_grafana with fs_grafana INFINITY
+
+sudo pcs constraint order promote ms_drbd_grafana then start fs_grafana
+sudo pcs constraint order start fs_grafana then start svc_grafana
+```
+
+VIP
+```
+sudo pcs resource create vip_grafana ocf:heartbeat:IPaddr2 \
+  ip=10.10.10.50 cidr_netmask=24 nic=ens192 \
+  op monitor interval=10s
+
+sudo pcs constraint colocation add vip_grafana with svc_grafana INFINITY
+sudo pcs constraint order start svc_grafana then start vip_grafana
+sudo pcs constraint order stop vip_grafana then stop svc_grafana
+```
+
+### Prometheus for mgmt
+```
+wget https://github.com/prometheus/prometheus/releases/download/v3.8.0/prometheus-3.8.0.linux-amd64.tar.gz
+
+tar xvf prometheus-3.8.0.linux-amd64.tar.gz
+
+mkdir /etc/prometheus
+mkdir /var/lib/prometheus
+
+cd prometheus-3.8.0.linux-amd64
+mv prometheus promtool /usr/local/bin/
+mv consoles/ console_libraries/ prometheus.yml /etc/prometheus
+
+groupadd --system prometheus
+useradd --system -s /sbin/nologin -g prometheus prometheus
+
+chown -R prometheus:prometheus /var/lib/prometheus
+
+vim /etc/prometheus/prometheus.yml
+```
+
+```
+sudo tee /etc/systemd/system/prometheus.service >/dev/null <<'EOF'
+[Unit]
+Description=Prometheus
+Documentation=https://prometheus.io/docs/introduction/overview
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=prometheus
+Group=prometheus
+Type=simple
+Restart=on-failure
+RestartSec=5s
+ExecStart=/usr/local/bin/prometheus \
+  --config.file /etc/prometheus/prometheus.yml \
+  --storage.tsdb.path /var/lib/prometheus/ \
+  --web.console.templates=/etc/prometheus/consoles \
+  --web.console.libraries=/etc/prometheus/console_libraries \
+  --web.listen-address=0.0.0.0:9090 \
+  --web.enable-lifecycle \
+  --log.level=info
+
+[Install]
+WantedBy=multi-user.target
+EOF
+```
+
+```
+systemctl daemon-reload
+systemctl enable prometheus
+systemctl start prometheus
+systemctl status prometheus
+```
+
+Node Exporter
+```
+wget https://github.com/prometheus/node_exporter/releases/download/v1.10.2/node_exporter-1.10.2.linux-amd64.tar.gz
+
+tar xvf node_exporter-1.10.2.linux-amd64.tar.gz
+
+cd node_exporter-1.10.2.linux-amd64
+
+mv node_exporter /usr/local/bin
+```
+
+```
+sudo tee /etc/systemd/system/node-exporter.service >/dev/null <<'EOF'
+[Unit]
+Description=Prometheus exporter for machine materics
+
+[Service]
+User=prometheus
+Restart=always
+ExecStart=/usr/local/bin/node_exporter
+ExecReload=/bin/kill -HUP $MAINPID
+TimeoutStopSec=20s
+SendSIGKILL=no
+
+[Install]
+WantedBy=multi-user.target
+EOF
+```
+
+Prometheus stack for cluster
+```
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo update
+
+helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
+  -n monitoring --create-namespace \
+  --set grafana.enabled=false
+```
+
+ingress
+```
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: my-app-ingress
+  namespace: monitoring
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: "app1.example.com"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: app1-service
+                port:
+                  number: 8080
+```
