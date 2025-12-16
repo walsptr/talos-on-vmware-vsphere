@@ -519,6 +519,10 @@ sudo pcs resource create vip_grafana ocf:heartbeat:IPaddr2 \
 sudo pcs constraint colocation add vip_grafana with svc_grafana INFINITY
 sudo pcs constraint order start svc_grafana then start vip_grafana
 sudo pcs constraint order stop vip_grafana then stop svc_grafana
+
+
+sudo pcs resource move svc_grafana hqmgmttls-02
+sudo pcs status
 ```
 
 ### Prometheus for mgmt
