@@ -392,8 +392,10 @@ talosctl --talosconfig talosconfig -n 172.23.1.240 config new vmtoolsd-talos-sec
 ```
 
 ## Clustering DRBD
+
+
 ```
-parted /dev/sdb
+# parted /dev/sdb (optional)
 
 sudo parted /dev/sdb --script \
   mklabel gpt \
