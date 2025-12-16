@@ -412,14 +412,14 @@ sudo vim /etc/drbd.d/grafana.res
 resource grafana {
   on hqmgmttls-01 {
     device    /dev/drbd0;
-    disk      /dev/sdb1;
+    disk      /dev/sdb;
     address   10.10.10.11:7788;
     meta-disk internal;
   }
 
   on hqmgmttls-02 {
     device    /dev/drbd0;
-    disk      /dev/sdb1;
+    disk      /dev/sdb;
     address   10.10.10.12:7788;
     meta-disk internal;
   }
@@ -492,7 +492,7 @@ sudo pcs resource master ms_drbd_grafana drbd_grafana \
 Filesystem
 ```
 sudo pcs resource create fs_grafana Filesystem \
-  device="/dev/drbd0" directory="/var/lib/grafana" fstype="xfs" \
+  device="/dev/drbd0" directory="/opt/grafana" fstype="xfs" \
   op monitor interval=20s
 ```
 
@@ -510,7 +510,8 @@ tar -zxvf grafana_12.3.0_19497075765_linux_amd64.tar.gz
 
 sudo useradd -r -s /bin/false grafana
 
-sudo mv grafana_12.3.0_19497075765_linux_amd64 /usr/local/grafana
+sudo mv grafana_12.3.0_19497075765_linux_amd64/bin/grafana /usr/local/bin/grafana
+sudo mv grafana_12.3.0_19497075765_linux_amd64 /opt/grafana
 
 sudo chown -R grafana:users /usr/local/grafana
 
@@ -526,7 +527,7 @@ After=network.target
 Type=simple
 User=grafana
 Group=users
-ExecStart=/usr/local/grafana/bin/grafana server --config=/usr/local/grafana/conf/grafana.ini --homepath=/var/lib/grafana
+ExecStart=/usr/local/bin/grafana server --config=/opt/grafana/conf/grafana.ini --homepath=/opt/grafana
 Restart=on-failure
 
 [Install]
