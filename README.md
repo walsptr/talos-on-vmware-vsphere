@@ -411,8 +411,10 @@ sudo pcs cluster enable --all
 
 create resource drbd
 ```
-sudo pcs resource create drbd_grafana ocf:linbit:drbd \
-  drbd_resource=grafana op monitor interval=20s role=Master op monitor interval=30s role=Slave
+sudo pcs resource create drbd_grafana ocf:linbit:drbd drbd_resource=grafana \
+  op monitor interval=20s role=Master \
+  op monitor interval=30s role=Slave \
+  promotable master-max=1 master-node-max=1 clone-max=2 clone-node-max=1 notify=true
 
 sudo pcs resource master ms_drbd_grafana drbd_grafana \
   master-max=1 master-node-max=1 clone-max=2 clone-node-max=1 notify=true
