@@ -708,3 +708,8 @@ spec:
                 port:
                   number: 8080
 ```
+
+## Dashboard ID for kube-prometh-stack
+```
+19105
+```
