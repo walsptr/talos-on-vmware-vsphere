@@ -1,0 +1,169 @@
+# Production-oriented overrides for prometheus-community/kube-prometheus-stack
+# StorageClass: vsphere-ds-powerstore (as requested)
+# Grafana admin auth: via existing Kubernetes Secret (no plaintext creds in values.yaml)
+# Ingress: enabled, HTTP only (no TLS)
+
+fullnameOverride: kube-prom-stack
+namespaceOverride: monitoring
+
+# -------------------------
+# Prometheus (TSDB)
+# -------------------------
+prometheus:
+  enabled: true
+  prometheusSpec:
+    replicas: 2
+
+    retention: 15d
+    retentionSize: "80GB"
+    scrapeInterval: 30s
+    evaluationInterval: 30s
+
+    enableAdminAPI: false
+    walCompression: true
+
+    # Persistence (PVC) — per replica
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: vsphere-ds-powerstore
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 100Gi
+
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "2Gi"
+      limits:
+        cpu: "2"
+        memory: "6Gi"
+
+    # Spread replicas across nodes
+    affinity:
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values: ["prometheus"]
+            topologyKey: kubernetes.io/hostname
+
+    # Safer defaults in production: only select monitors/rules you explicitly label/select
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+
+# -------------------------
+# Alertmanager
+# -------------------------
+alertmanager:
+  enabled: true
+  alertmanagerSpec:
+    replicas: 2
+
+    # Persistence (PVC)
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: vsphere-ds-powerstore
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 50Gi
+
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+
+    # Spread replicas across nodes
+    affinity:
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values: ["alertmanager"]
+            topologyKey: kubernetes.io/hostname
+
+# NOTE (recommended):
+# Put Alertmanager receivers/tokens in a Secret and reference it via:
+# alertmanager:
+#   configSecret: <secret-name>
+
+# -------------------------
+# Grafana
+# -------------------------
+grafana:
+  enabled: true
+  replicas: 1
+
+  # Use Secret for Grafana admin auth (best practice)
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+
+  persistence:
+    enabled: true
+    storageClassName: vsphere-ds-powerstore
+    accessModes: ["ReadWriteOnce"]
+    size: 100Gi
+
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    hosts:
+      - grafana-dev.bpk.go.id
+    path: /
+    pathType: Prefix
+    # HTTP only (no TLS block)
+
+# -------------------------
+# Exporters / kube-state-metrics
+# -------------------------
+kubeStateMetrics:
+  enabled: true
+
+nodeExporter:
+  enabled: true
+
+# -------------------------
+# Default rules
+# -------------------------
+defaultRules:
+  create: true
+
+# -------------------------
+# Prometheus Operator (controller)
+# -------------------------
+prometheusOperator:
+  enabled: true
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+# -------------------------
+# Admission webhooks (recommended enabled)
+# -------------------------
+prometheusOperatorAdmissionWebhooks:
+  enabled: true

@@ -648,6 +648,8 @@ spec:
 ## Dashboard ID for kube-prometh-stack
 ```
 19105
+21742
+15757
 ```
 
 ## Option 2 (Separate grafana for cluster)
@@ -811,6 +813,19 @@ defaultRules:
     null
 ```
 
+Create secret for grafana
+```
+kubectl -n monitoring create secret generic grafana-admin \
+  --from-literal=admin-user=admin \
+  --from-literal=admin-password='password'
+```
+
+install
+```
+helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+  -n monitoring \
+  -f values-production.yaml
+```
 access endpoint without ingress for testing
 ```
 kubectl -n monitoring port-forward svc/kube-prom-stack-grafana 3000:80
