@@ -332,7 +332,7 @@ sudo parted /dev/sdb --script \
 ```
 
 ```
-sudo apt update -y && sudo apt install -y pacemaker pcs resource-agents corosync crmsh drbd-utils
+sudo apt update -y && sudo apt install -y pacemaker pcs resource-agents-common resource-agents-extra corosync crmsh drbd-utils
 ```
 
 ```
@@ -500,14 +500,6 @@ sudo pcs resource create svc_grafana systemd:grafana-server \
   op monitor interval=20s
 ```
 
-constraint
-```
-sudo pcs constraint colocation add fs_grafana with promoted drbd_grafana-clone INFINITY
-sudo pcs constraint colocation add svc_grafana with fs_grafana INFINITY
-
-sudo pcs constraint order promote drbd_grafana-clone then start fs_grafana
-sudo pcs constraint order start fs_grafana then start svc_grafana
-```
 
 VIP
 ```
@@ -515,12 +507,23 @@ sudo pcs resource create vip_grafana ocf:heartbeat:IPaddr2 \
   ip=10.10.10.50 cidr_netmask=24 nic=ens192 \
   op monitor interval=10s
 
+```
 
+constraint
+```
+sudo pcs constraint colocation add fs_grafana with promoted drbd_grafana-clone INFINITY
+sudo pcs constraint colocation add svc_grafana with fs_grafana INFINITY
 sudo pcs constraint colocation add vip_grafana with svc_grafana INFINITY
+
+
+sudo pcs constraint order promote drbd_grafana-clone then start fs_grafana
+sudo pcs constraint order start fs_grafana then start svc_grafana
 sudo pcs constraint order start svc_grafana then start vip_grafana
 sudo pcs constraint order stop vip_grafana then stop svc_grafana
+```
 
-
+testing
+```
 sudo pcs resource move svc_grafana hqmgmttls-02
 sudo pcs status
 ```
@@ -645,4 +648,172 @@ spec:
 ## Dashboard ID for kube-prometh-stack
 ```
 19105
+```
+
+## Option 2 (Separate grafana for cluster)
+```
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo update
+
+helm show values prometheus-community/kube-prometheus-stack > values.yaml
+```
+
+Example conf
+```
+# values.yaml
+fullnameOverride: kube-prom-stack
+
+# =========================
+# Prometheus (TSDB)
+# =========================
+prometheus:
+  prometheusSpec:
+    replicas: 2
+    # Untuk 2 replicas, tetap 2 PVC terpisah (masing-masing replica punya volume sendiri).
+    # Lihat storageSpec di bawah.
+    retention: 15d
+    retentionSize: "80GB"        # opsional, batasi kapasitas TSDB
+    scrapeInterval: 30s
+    evaluationInterval: 30s
+
+    # Wajib untuk persistence
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: "YOUR_STORAGE_CLASS"
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 100Gi
+
+    # Sizing awal (tuning sesuai load)
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "2Gi"
+      limits:
+        cpu: "2"
+        memory: "6Gi"
+
+    # Anti-affinity agar replika tidak nempel di node yang sama
+    affinity:
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values: ["prometheus"]
+            topologyKey: "kubernetes.io/hostname"
+
+    # Contoh: taruh di node khusus monitoring (opsional)
+    # nodeSelector:
+    #   workload: monitoring
+    # tolerations:
+    #   - key: "workload"
+    #     operator: "Equal"
+    #     value: "monitoring"
+    #     effect: "NoSchedule"
+
+# =========================
+# Alertmanager
+# =========================
+alertmanager:
+  alertmanagerSpec:
+    replicas: 2
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: "YOUR_STORAGE_CLASS"
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+
+# Konfigurasi routing Alertmanager (contoh minimal)
+# Disarankan pakai secret/external config untuk production.
+alertmanager:
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      group_by: ["alertname", "namespace", "service"]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      receiver: "null"
+    receivers:
+      - name: "null"
+
+# =========================
+# Grafana
+# =========================
+grafana:
+  replicas: 1
+  persistence:
+    enabled: true
+    storageClassName: "YOUR_STORAGE_CLASS"
+    accessModes:
+      - ReadWriteOnce
+    size: 10Gi
+
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+  # Admin password sebaiknya dari secret, bukan plaintext.
+  adminPassword: "CHANGE_ME_STRONG"
+
+  # Ingress (opsional)
+  ingress:
+    enabled: true
+    ingressClassName: "nginx"
+    hosts:
+      - "grafana.example.com"
+    path: /
+    tls:
+      - secretName: grafana-tls
+        hosts:
+          - "grafana.example.com"
+
+# =========================
+# kube-state-metrics / node-exporter
+# =========================
+kubeStateMetrics:
+  enabled: true
+
+nodeExporter:
+  enabled: true
+
+# =========================
+# Kurangi noise rules jika perlu
+# =========================
+defaultRules:
+  create: true
+  rules:
+    # bisa matikan rule yang tidak relevan untuk mengurangi alert noise
+    # kubeApiserverAvailability: false
+    # etcd: false
+    # kubernetesResources: true
+    # node: true
+    # ...
+    null
+```
+
+access endpoint without ingress for testing
+```
+kubectl -n monitoring port-forward svc/kube-prom-stack-grafana 3000:80
+kubectl -n monitoring port-forward svc/kube-prom-stack-kube-prome-prometheus 9090:9090
+kubectl -n monitoring port-forward svc/kube-prom-stack-kube-prome-alertmanager 9093:9093
 ```
