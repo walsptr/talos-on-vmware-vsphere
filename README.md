@@ -650,6 +650,7 @@ spec:
 19105
 21742
 15757
+1860
 ```
 
 ## Option 2 (Separate grafana for cluster)

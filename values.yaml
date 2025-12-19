@@ -56,6 +56,14 @@ prometheus:
     podMonitorSelectorNilUsesHelmValues: false
     ruleSelectorNilUsesHelmValues: false
 
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    hosts:
+      - alertmanager-dev.bpk.go.id
+    path: /
+    pathType: Prefix
+
 # -------------------------
 # Alertmanager
 # -------------------------
@@ -93,6 +101,13 @@ alertmanager:
                   values: ["alertmanager"]
             topologyKey: kubernetes.io/hostname
 
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    hosts:
+      - prometheus-dev.bpk.go.id
+    path: /
+    pathType: Prefix
 # NOTE (recommended):
 # Put Alertmanager receivers/tokens in a Secret and reference it via:
 # alertmanager:
