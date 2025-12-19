@@ -827,9 +827,18 @@ helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheu
   -n monitoring \
   -f values-production.yaml
 ```
+
 access endpoint without ingress for testing
 ```
 kubectl -n monitoring port-forward svc/kube-prom-stack-grafana 3000:80
 kubectl -n monitoring port-forward svc/kube-prom-stack-kube-prome-prometheus 9090:9090
 kubectl -n monitoring port-forward svc/kube-prom-stack-kube-prome-alertmanager 9093:9093
+```
+
+
+update value
+```
+helm upgrade kube-prom-stack prometheus-community/kube-prometheus-stack \
+  -n monitoring \
+  -f values.yaml
 ```
