@@ -842,3 +842,9 @@ helm upgrade kube-prom-stack prometheus-community/kube-prometheus-stack \
   -n monitoring \
   -f values.yaml
 ```
+
+metrics server
+```
+kubectl apply -f https://raw.githubusercontent.com/alex1989hu/kubelet-serving-cert-approver/main/deploy/standalone-install.yaml
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+```
