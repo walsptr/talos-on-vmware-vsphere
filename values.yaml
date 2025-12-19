@@ -1,8 +1,4 @@
 # Production-oriented overrides for prometheus-community/kube-prometheus-stack
-# StorageClass: vsphere-ds-powerstore (as requested)
-# Grafana admin auth: via existing Kubernetes Secret (no plaintext creds in values.yaml)
-# Ingress: enabled, HTTP only (no TLS)
-
 fullnameOverride: kube-prom-stack
 namespaceOverride: monitoring
 
@@ -51,18 +47,18 @@ prometheus:
                   values: ["prometheus"]
             topologyKey: kubernetes.io/hostname
 
-    # Safer defaults in production: only select monitors/rules you explicitly label/select
     serviceMonitorSelectorNilUsesHelmValues: false
     podMonitorSelectorNilUsesHelmValues: false
     ruleSelectorNilUsesHelmValues: false
 
+  # Ingress OFF
   ingress:
-    enabled: true
-    ingressClassName: nginx
-    hosts:
-      - alertmanager-dev.bpk.go.id
-    path: /
-    pathType: Prefix
+    enabled: false
+
+  # Service -> NodePort
+  service:
+    type: NodePort
+    nodePort: 30900
 
 # -------------------------
 # Alertmanager
@@ -101,53 +97,24 @@ alertmanager:
                   values: ["alertmanager"]
             topologyKey: kubernetes.io/hostname
 
+  # Ingress OFF
   ingress:
-    enabled: true
-    ingressClassName: nginx
-    hosts:
-      - prometheus-dev.bpk.go.id
-    path: /
-    pathType: Prefix
-# NOTE (recommended):
-# Put Alertmanager receivers/tokens in a Secret and reference it via:
-# alertmanager:
-#   configSecret: <secret-name>
+    enabled: false
+
+  # Service -> NodePort
+  service:
+    type: NodePort
+    nodePort: 30901
 
 # -------------------------
-# Grafana
+# Grafana (DISABLED)
 # -------------------------
 grafana:
-  enabled: true
-  replicas: 1
-
-  # Use Secret for Grafana admin auth (best practice)
-  admin:
-    existingSecret: grafana-admin
-    userKey: admin-user
-    passwordKey: admin-password
-
-  persistence:
-    enabled: true
-    storageClassName: vsphere-ds-powerstore
-    accessModes: ["ReadWriteOnce"]
-    size: 100Gi
-
-  resources:
-    requests:
-      cpu: "100m"
-      memory: "256Mi"
-    limits:
-      cpu: "500m"
-      memory: "512Mi"
-
+  enabled: false
   ingress:
-    enabled: true
-    ingressClassName: nginx
-    hosts:
-      - grafana-dev.bpk.go.id
-    path: /
-    pathType: Prefix
-    # HTTP only (no TLS block)
+    enabled: false
+  persistence:
+    enabled: false
 
 # -------------------------
 # Exporters / kube-state-metrics
@@ -178,7 +145,7 @@ prometheusOperator:
       memory: "512Mi"
 
 # -------------------------
-# Admission webhooks (recommended enabled)
+# Admission webhooks
 # -------------------------
 prometheusOperatorAdmissionWebhooks:
   enabled: true
