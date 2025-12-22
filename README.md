@@ -825,7 +825,7 @@ install
 ```
 helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
   -n monitoring \
-  -f values-production.yaml
+  -f values.yaml
 ```
 
 access endpoint without ingress for testing
