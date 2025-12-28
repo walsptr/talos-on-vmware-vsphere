@@ -112,3 +112,6 @@ nodeSelector: {}
 tolerations: []
 
 affinity: {}
+
+secret:
+  name: my-secret
