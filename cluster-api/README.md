@@ -249,13 +249,13 @@ vim $CLUSTER_NAME/cluster-api/clusterctl.yaml
 
 providers:
   - name: "talos"
-    url: "https://github.com/siderolabs/cluster-api-bootstrap-provider-talos/releases/v1.11.1/bootstrap-components.yaml"
+    url: "https://github.com/siderolabs/cluster-api-bootstrap-provider-talos/releases/latest/bootstrap-components.yaml"
     type: "BootstrapProvider"
   - name: "talos"
-    url: "https://github.com/siderolabs/cluster-api-control-plane-provider-talos/releases/v1.11.1/control-plane-components.yaml"
+    url: "https://github.com/siderolabs/cluster-api-control-plane-provider-talos/releases/latest/control-plane-components.yaml"
     type: "ControlPlaneProvider"
   - name: "vsphere"
-    url: "https://github.com/kubernetes-sigs/cluster-api-provider-vsphere/releases/download/v1.14.0/infrastructure-components.yaml"
+    url: "https://github.com/kubernetes-sigs/cluster-api-provider-vsphere/releases/latest/infrastructure-components.yaml"
     type: "InfrastructureProvider"
 
 VSPHERE_SERVER: "172.20.0.20"
@@ -279,15 +279,35 @@ VSPHERE_STORAGE_POLICY: ""
 ```
 clusterctl init --config $CLUSTER_NAME/cluster-api/clusterctl.yaml --infrastructure vsphere --control-plane talos --bootstrap talos
 ```
-3. install CAPI
-```
-clusterctl init --config $CLUSTER_NAME/cluster-api/clusterctl.yaml --infrastructure vsphere --control-plane talos --bootstrap talos
-```
 
-5. Create yaml for cluster, vspherecluster, secret and template
+4. Create yaml for cluster, vspherecluster, secret and template
 ```
-vim cluster.yaml
-
+cat <<'EOF' > cp.yaml
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: VSphereCluster
+metadata:
+  name: vsphere-cluster
+  namespace: default
+spec:
+  controlPlaneEndpoint:
+    host: 192.168.1.105
+    port: 6443
+  identityRef:
+    kind: Secret
+    name: vsphere-secret
+  server: 192.168.1.11
+  thumbprint: 32:B4:CD:CA:11:84:FD:6C:C9:F8:61:9D:9A:FB:3C:E3:B8:30:25:F7:20:EA:A1:FF:CF:7F:32:09:07:08:E9:6C
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: vsphere-secret
+  namespace: default
+stringData:
+  password: Redhat123!@#:)
+  username: administrator@vsphere.local
+---
 apiVersion: cluster.x-k8s.io/v1beta2
 kind: Cluster
 metadata:
@@ -306,30 +326,6 @@ spec:
     name: vsphere-cluster
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
-kind: VSphereCluster
-metadata:
-  name: vsphere-cluster
-  namespace: default
-spec:
-  controlPlaneEndpoint:
-    host: 172.23.10.30
-    port: 6443
-  identityRef:
-    kind: Secret
-    name: vsphere-secret
-  server: 172.23.0.20
-  thumbprint: 7F:55:25:3F:FA:F7:DE:F9:61:ED:37:9D:C7:DC:8A:90:6E:2E:10:16:C7:D5:DA:41:85:5D:1D:71:2F:14:66:3D
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: vsphere-secret
-  namespace: default
-stringData:
-  password: Idn123*()
-  username: administrator@idn.local
----
-apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: VSphereMachineTemplate
 metadata:
   name: talos-control-plane
@@ -338,11 +334,11 @@ spec:
   template:
     spec:
       cloneMode: fullClone
-      datacenter: 'DC IDN-PALMERAH'
-      datastore: DS-DATA
+      datacenter: 'Datacenter'
+      datastore: host1.8-ds2
       diskGiB: 30
       folder: ""
-      memoryMiB: 8192
+      memoryMiB: 4096
       network:
         devices:
         - dhcp4: true
@@ -350,10 +346,9 @@ spec:
       numCPUs: 2
       os: Linux
       powerOffMode: trySoft
-      resourcePool: '192.168.20.108/Resources'
-      server: 172.23.0.20
+      server: 192.168.1.11
       storagePolicyName: ""
-      template: talos-v1.11.1-tmp
+      template: talos-template
 ---
 apiVersion: controlplane.cluster.x-k8s.io/v1alpha3
 kind: TalosControlPlane
@@ -361,7 +356,7 @@ metadata:
   name: talos-cp
   namespace: default
 spec:
-  version: v1.33.1
+  version: v1.35.0
   replicas: 1
   infrastructureTemplate:
     kind: VSphereMachineTemplate
@@ -371,33 +366,129 @@ spec:
   controlPlaneConfig:
     controlplane:
       generateType: controlplane
-      talosVersion: v1.11.1
+      talosVersion: v1.12.4
       strategicPatches:
         - |
-          - op: add
-            path: /cluster/allowSchedulingOnControlPlanes
-            value: true
-          - op: replace
-            path: /cluster/extraManifests
-            value:
-              - "https://raw.githubusercontent.com/siderolabs/talos-vmtoolsd/refs/tags/v1.4.0/deploy/latest.yaml"
-          - op: add
-            path: /machine/install/extraKernelArgs
-            value:
-              - net.ifnames=0
-          - op: add
-            path: /machine/network/interfaces
-            value:
-              - interface: eth0
-                dhcp: true
-                vip:
-                  ip: 172.23.10.30
-          - op: add
-            path: /machine/kubelet/extraArgs
-            value:
-              cloud-provider: external
+          cluster:
+            allowSchedulingOnControlPlanes: true
+            extraManifests:
+              - https://raw.githubusercontent.com/siderolabs/talos-vmtoolsd/refs/tags/v1.4.0/deploy/latest.yaml
+          machine:
+            network:
+              interfaces:
+                - interface: eth0
+                  dhcp: true
+                  vip:
+                    ip: 192.168.1.105
+EOF
 ```
 
+```
+cat <<'EOF' > worker.yaml
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: VSphereMachineTemplate
+metadata:
+  name: worker-template
+  namespace: default
+spec:
+  template:
+    spec:
+      cloneMode: fullClone
+      datacenter: 'Datacenter'
+      datastore: host1.8-ds2
+      diskGiB: 30
+      folder: ""
+      memoryMiB: 4096
+      network:
+        devices:
+        - dhcp4: true
+          networkName: VM Network
+      numCPUs: 2
+      os: Linux
+      powerOffMode: trySoft
+      server: 192.168.1.11
+      storagePolicyName: ""
+      template: talos-template
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: MachineDeployment
+metadata:
+  name: worker-machine
+  namespace: default
+  annotations:
+    cluster.x-k8s.io/cluster-api-autoscaler-node-group-min-size: "1"
+    cluster.x-k8s.io/cluster-api-autoscaler-node-group-max-size: "5"
+spec:
+  clusterName: talos-cluster
+  replicas: 2
+  selector:
+    matchLabels: null
+  template:
+    spec:
+      bootstrap:
+        configRef:
+          apiVersion: bootstrap.cluster.x-k8s.io/v1alpha3
+          kind: TalosConfigTemplate
+          name: talosconfig-workers
+      clusterName: talos-cluster
+      infrastructureRef:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        kind: VSphereMachineTemplate
+        name: worker-template
+      version: v1.35.0
+---
+apiVersion: bootstrap.cluster.x-k8s.io/v1alpha3
+kind: TalosConfigTemplate
+metadata:
+  name: talosconfig-workers
+spec:
+  template:
+    spec:
+      generateType: worker
+      talosVersion: v1.9
+      strategicPatches:
+        - |
+          machine:
+            network:
+              interfaces:
+                - interface: eth0
+                  dhcp: true
+              nameservers:
+                - 8.8.8.8
+EOF
+```
+
+# Deploy Cluster Autoscaler
+```
+add annotations on machinedeployment
+cluster.x-k8s.io/cluster-api-autoscaler-node-group-min-size: "1"
+cluster.x-k8s.io/cluster-api-autoscaler-node-group-max-size: "5"
+
+helm show values cluster-autoscaler/cluster-autoscaler > values.yaml
+
+edit values.yaml
+                                    
+autoDiscovery:
+  clusterName: talos-cluster
+  labels:
+    - namespace: default
+    - clusterName: talos-cluster
+cloudProvider: clusterapi
+clusterAPIKubeconfigSecret: "talos-cluster-kubeconfig" 
+clusterAPIMode: kubeconfig-incluster
+rbac:
+  additionalRules:
+    - apiGroups:
+      - infrastructure.cluster.x-k8s.io
+      resources:
+      - vspheremachinetemplates
+      verbs:
+      - get
+      - list
+      - watch
+
+helm upgrade --install cluster-autoscaler cluster-autoscaler/cluster-autoscaler -f values.yaml
+```
 # Reference
 - https://cluster-api.sigs.k8s.io/user/quick-start
 - https://a-cup-of.coffee/blog/talos-capi-proxmox/
@@ -424,14 +515,6 @@ kubectl get secret talos-cluster-kubeconfig  -o jsonpath="{.data.value}" | base6
 kubectl get secret talos-cluster-talosconfig -o jsonpath="{.data.talosconfig}" | base64 -d > talosconfig
 ```
 
-create vmtools secret
-```
-export KUBECONFIG=kubeconfig
-CONTROL_PLANE_1_IP=$(kubectl get nodes -o jsonpath="{.items[*].status.addresses[?(@.type=='InternalIP')].address}")
-talosctl --talosconfig talosconfig -n 172.23.1.240 config new vmtoolsd-talos-secret.yaml --roles os:admin
-kubectl -n kube-system create secret generic talos-vmtoolsd-config --from-file=talosconfig=vmtoolsd-talos-secret.yaml
-```
-
 deploy csi
 ```
 export KUBECONFIG=kubeconfig
@@ -444,3 +527,11 @@ kubectl get cm vsphere-cloud-config -n kube-system -o yaml \
 
 kubectl -n kube-system rollout restart ds vsphere-cpi
 ```
+
+
+# Step
+1. Create jumphost node
+2. Create mgmt node --> can using iso from talos factory
+3. Create cluster api/clusterctl
+4. Create template for prov --> using .ova from talos factory
+5. Apply template

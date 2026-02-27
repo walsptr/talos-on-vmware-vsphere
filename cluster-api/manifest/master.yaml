@@ -1,0 +1,136 @@
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: VSphereCluster
+metadata:
+  name: vsphere-cluster
+  namespace: default
+spec:
+  controlPlaneEndpoint:
+    host: 192.168.1.105
+    port: 6443
+  identityRef:
+    kind: Secret
+    name: vsphere-secret
+  server: 192.168.1.11
+  thumbprint: 32:B4:CD:CA:11:84:FD:6C:C9:F8:61:9D:9A:FB:3C:E3:B8:30:25:F7:20:EA:A1:FF:CF:7F:32:09:07:08:E9:6C
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: vsphere-secret
+  namespace: default
+stringData:
+  password: Redhat123!@#:)
+  username: administrator@vsphere.local
+---
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: Cluster
+metadata:
+  labels:
+    cluster.x-k8s.io/cluster-name: talos-cluster
+  name: talos-cluster
+  namespace: default
+spec:
+  controlPlaneRef:
+    apiGroup: controlplane.cluster.x-k8s.io
+    kind: TalosControlPlane
+    name: talos-cp
+  infrastructureRef:
+    apiGroup: infrastructure.cluster.x-k8s.io
+    kind: VSphereCluster
+    name: vsphere-cluster
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: VSphereMachineTemplate
+metadata:
+  name: talos-control-plane
+  namespace: default
+spec:
+  template:
+    spec:
+      cloneMode: fullClone
+      datacenter: 'Datacenter'
+      datastore: host1.8-ds2
+      diskGiB: 30
+      folder: ""
+      memoryMiB: 4096
+      network:
+        devices:
+        - dhcp4: true
+          networkName: VM Network
+      numCPUs: 2
+      os: Linux
+      powerOffMode: trySoft
+      server: 192.168.1.11
+      storagePolicyName: ""
+      template: talos-template
+---
+apiVersion: controlplane.cluster.x-k8s.io/v1alpha3
+kind: TalosControlPlane
+metadata:
+  name: talos-cp
+  namespace: default
+spec:
+  version: v1.35.0
+  replicas: 1
+  infrastructureTemplate:
+    kind: VSphereMachineTemplate
+    apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+    name: talos-control-plane
+    namespace: default
+  controlPlaneConfig:
+    controlplane:
+      generateType: controlplane
+      talosVersion: v1.12.4
+      strategicPatches:
+        - |
+          machine:
+            nodeLabels:
+              node-role.kubernetes.io/master: ""
+            network:
+              interfaces:
+                - interface: eth0
+                  dhcp: true
+                  vip:
+                    ip: 192.168.1.105
+          cluster:
+            externalCloudProvider:
+              enabled: true
+              manifests:
+                - https://raw.githubusercontent.com/kubernetes/cloud-provider-vsphere/refs/tags/v1.35.0/manifests/controller-manager/cloud-controller-manager-role-bindings.yaml
+                - https://raw.githubusercontent.com/kubernetes/cloud-provider-vsphere/refs/tags/v1.35.0/manifests/controller-manager/cloud-controller-manager-roles.yaml
+                - https://raw.githubusercontent.com/kubernetes/cloud-provider-vsphere/refs/tags/v1.35.0/manifests/controller-manager/vsphere-cloud-controller-manager-ds.yaml
+            allowSchedulingOnControlPlanes: true
+            extraManifests:
+              - https://raw.githubusercontent.com/siderolabs/talos-vmtoolsd/refs/tags/v1.4.0/deploy/latest.yaml
+            inlineManifests:
+              - name: cloud-config
+                contents: |
+                  apiVersion: v1
+                  kind: ConfigMap
+                  metadata:
+                    name: cloud-config
+                    namespace: kube-system
+                  data:
+                    vsphere.conf: |
+                      global:
+                        port: 443
+                        insecureFlag: true
+                        secretName: vsphere-cloud-secret
+                        secretNamespace: kube-system
+                      vcenter:
+                        192.168.1.11:
+                          server: 192.168.1.11
+                          datacenters:
+                          - Datacenter
+              - name: vsphere-cloud-secret
+                contents: |
+                  apiVersion: v1
+                  kind: Secret
+                  metadata:
+                    name: vsphere-cloud-secret
+                    namespace: kube-system
+                  type: Opaque
+                  data:
+                    192.168.1.11.username: YWRtaW5pc3RyYXRvckB2c3BoZXJlLmxvY2Fs
+                    192.168.1.11.password: UmVkaGF0MTIzIUAjOik=

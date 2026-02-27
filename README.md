@@ -160,6 +160,7 @@ cluster:
 
 enable cloudprovider external
 ```
+cluster
   externalCloudProvider:
     enabled: true
 ```

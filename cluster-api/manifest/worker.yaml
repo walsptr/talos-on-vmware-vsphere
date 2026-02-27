@@ -1,0 +1,73 @@
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: VSphereMachineTemplate
+metadata:
+  name: worker-template
+  namespace: default
+spec:
+  template:
+    spec:
+      cloneMode: fullClone
+      datacenter: 'Datacenter'
+      datastore: host1.14-ds1
+      diskGiB: 30
+      folder: ""
+      memoryMiB: 4096
+      network:
+        devices:
+        - dhcp4: true
+          networkName: VM Network
+      numCPUs: 2
+      os: Linux
+      powerOffMode: trySoft
+      server: 192.168.1.11
+      storagePolicyName: ""
+      template: talos-template
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: MachineDeployment
+metadata:
+  name: worker-machine
+  namespace: default
+  annotations:
+    cluster.x-k8s.io/cluster-api-autoscaler-node-group-min-size: "1"
+    cluster.x-k8s.io/cluster-api-autoscaler-node-group-max-size: "2"
+spec:
+  clusterName: talos-cluster
+  replicas: 1
+  selector:
+    matchLabels: null
+  template:
+    spec:
+      bootstrap:
+        configRef:
+          apiVersion: bootstrap.cluster.x-k8s.io/v1alpha3
+          kind: TalosConfigTemplate
+          name: talosconfig-workers
+      clusterName: talos-cluster
+      infrastructureRef:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        kind: VSphereMachineTemplate
+        name: worker-template
+      version: v1.35.0
+---
+apiVersion: bootstrap.cluster.x-k8s.io/v1alpha3
+kind: TalosConfigTemplate
+metadata:
+  name: talosconfig-workers
+spec:
+  template:
+    spec:
+      generateType: worker
+      talosVersion: v1.9
+      strategicPatches:
+        - |
+          cluster:
+            externalCloudProvider:
+              enabled: true
+          machine:
+            network:
+              interfaces:
+                - interface: eth0
+                  dhcp: true
+              nameservers:
+                - 8.8.8.8

@@ -1,0 +1,18 @@
+autoDiscovery:
+  clusterName: talos-cluster
+  labels:
+    - namespace: default
+    - clusterName: talos-cluster
+cloudProvider: clusterapi
+clusterAPIKubeconfigSecret: "talos-cluster-kubeconfig" 
+clusterAPIMode: kubeconfig-incluster
+rbac:
+  additionalRules:
+    - apiGroups:
+      - infrastructure.cluster.x-k8s.io
+      resources:
+      - vspheremachinetemplates
+      verbs:
+      - get
+      - list
+      - watch
