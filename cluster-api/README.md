@@ -369,17 +369,56 @@ spec:
       talosVersion: v1.12.4
       strategicPatches:
         - |
-          cluster:
-            allowSchedulingOnControlPlanes: true
-            extraManifests:
-              - https://raw.githubusercontent.com/siderolabs/talos-vmtoolsd/refs/tags/v1.4.0/deploy/latest.yaml
           machine:
+            nodeLabels:
+              node-role.kubernetes.io/master: ""
             network:
               interfaces:
                 - interface: eth0
                   dhcp: true
                   vip:
                     ip: 192.168.1.105
+          cluster:
+            externalCloudProvider:
+              enabled: true
+              manifests:
+                - https://raw.githubusercontent.com/kubernetes/cloud-provider-vsphere/refs/tags/v1.35.0/manifests/controller-manager/cloud-controller-manager-role-bindings.yaml
+                - https://raw.githubusercontent.com/kubernetes/cloud-provider-vsphere/refs/tags/v1.35.0/manifests/controller-manager/cloud-controller-manager-roles.yaml
+                - https://raw.githubusercontent.com/kubernetes/cloud-provider-vsphere/refs/tags/v1.35.0/manifests/controller-manager/vsphere-cloud-controller-manager-ds.yaml
+            allowSchedulingOnControlPlanes: true
+            extraManifests:
+              - https://raw.githubusercontent.com/siderolabs/talos-vmtoolsd/refs/tags/v1.4.0/deploy/latest.yaml
+            inlineManifests:
+              - name: cloud-config
+                contents: |
+                  apiVersion: v1
+                  kind: ConfigMap
+                  metadata:
+                    name: cloud-config
+                    namespace: kube-system
+                  data:
+                    vsphere.conf: |
+                      global:
+                        port: 443
+                        insecureFlag: true
+                        secretName: vsphere-cloud-secret
+                        secretNamespace: kube-system
+                      vcenter:
+                        192.168.1.11:
+                          server: 192.168.1.11
+                          datacenters:
+                          - Datacenter
+              - name: vsphere-cloud-secret
+                contents: |
+                  apiVersion: v1
+                  kind: Secret
+                  metadata:
+                    name: vsphere-cloud-secret
+                    namespace: kube-system
+                  type: Opaque
+                  data:
+                    192.168.1.11.username: YWRtaW5pc3RyYXRvckB2c3BoZXJlLmxvY2Fs
+                    192.168.1.11.password: UmVkaGF0MTIzIUAjOik=
 EOF
 ```
 
@@ -458,6 +497,37 @@ spec:
 EOF
 ```
 
+```
+kubectl get cluster,vspherecluster,machines
+```
+
+get kubeconfig after provisioning cluster/node in cluster api
+```
+kubectl get secret talos-cluster-kubeconfig  -o jsonpath="{.data.value}" | base64 -d > kubeconfig
+kubectl get secret talos-cluster-talosconfig -o jsonpath="{.data.talosconfig}" | base64 -d > talosconfig
+```
+
+Create talos vmtools secret
+```
+talosctl --talosconfig talosconfig -n <control plane IP> config new vmtoolsd-secret.yaml --roles os:admin
+
+# Create secret
+kubectl -n kube-system create secret generic talos-vmtoolsd-config --from-file=talosconfig=vmtoolsd-secret.yaml
+```
+
+deploy csi
+```
+export KUBECONFIG=kubeconfig
+
+helm upgrade --install vsphere-cpi vsphere-cpi/vsphere-cpi --namespace kube-system --set config.enabled=true --set config.vcenter=${IP_VMWARE} --set config.username=${GOVC_USERNAME} --set config.password=${GOVC_PASSWORD} --set config.datacenter="'${GOVC_DATACENTER}'"
+
+kubectl get cm vsphere-cloud-config -n kube-system -o yaml \
+  | sed -e '/^    # labels for regions and zones$/,/^      zone:/d' \
+  | kubectl apply -f -
+
+kubectl -n kube-system rollout restart ds vsphere-cpi
+```
+
 # Deploy Cluster Autoscaler
 ```
 add annotations on machinedeployment
@@ -493,45 +563,3 @@ helm upgrade --install cluster-autoscaler cluster-autoscaler/cluster-autoscaler 
 - https://cluster-api.sigs.k8s.io/user/quick-start
 - https://a-cup-of.coffee/blog/talos-capi-proxmox/
 - https://medium.com/@dhananjayak/harnessing-cluster-api-for-vmware-a-deep-dive-into-management-and-workload-cluster-deployment-fb2c97e1814e
-
-# Noted
-```
-kubectl get cluster,vspherecluster,machines
-```
-
-for example cluster, vspherecluster, etc template u can use this command
-```
-clusterctl generate cluster capi-quickstart \
-  --kubernetes-version v1.34.0 \
-  --control-plane-machine-count=3 \
-  --worker-machine-count=3 \
-  > capi-quickstart.yaml
-```
-
-
-get kubeconfig after provisioning cluster/node in cluster api
-```
-kubectl get secret talos-cluster-kubeconfig  -o jsonpath="{.data.value}" | base64 -d > kubeconfig
-kubectl get secret talos-cluster-talosconfig -o jsonpath="{.data.talosconfig}" | base64 -d > talosconfig
-```
-
-deploy csi
-```
-export KUBECONFIG=kubeconfig
-
-helm upgrade --install vsphere-cpi vsphere-cpi/vsphere-cpi --namespace kube-system --set config.enabled=true --set config.vcenter=${IP_VMWARE} --set config.username=${GOVC_USERNAME} --set config.password=${GOVC_PASSWORD} --set config.datacenter="'${GOVC_DATACENTER}'"
-
-kubectl get cm vsphere-cloud-config -n kube-system -o yaml \
-  | sed -e '/^    # labels for regions and zones$/,/^      zone:/d' \
-  | kubectl apply -f -
-
-kubectl -n kube-system rollout restart ds vsphere-cpi
-```
-
-
-# Step
-1. Create jumphost node
-2. Create mgmt node --> can using iso from talos factory
-3. Create cluster api/clusterctl
-4. Create template for prov --> using .ova from talos factory
-5. Apply template
